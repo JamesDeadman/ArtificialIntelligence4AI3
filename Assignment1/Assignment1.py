@@ -102,8 +102,8 @@ def GetValvePosition(EggDirt, FlowRate):
 
 
 #Values from input
-EggDirt = 0.3
-FlowRate = 0.4
+EggDirt = 0.5
+FlowRate = 0.2
 
 print("Input Egg Dirt: %.2f" % EggDirt)
 print("Input Flow Rate: %.2f" % FlowRate)

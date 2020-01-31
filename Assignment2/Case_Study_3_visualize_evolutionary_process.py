@@ -14,13 +14,13 @@ Y_BOUND = [-1, 1]         # y upper and lower bounds
 
 # find the maximum of the reciprocal of orignial function 
 def F(X,Y): return 1 / ( (3 * X**2 + np.sin(5 * np.pi * X)) + (3 * Y**4 + np.cos(3 * np.pi* Y)) + 10 )
-    
+
 # find non-zero fitness for selection
 def get_fitness(F_values): return F_values + 1e-3 - np.min(F_values)
 
 # convert binary DNA for X to decimal and normalize it to a range(-1, 1)
 def translateDNA_X(pop): 
-    pop_X=pop[:, 0:10]
+    pop_X = pop[:, 0:10]
     return pop_X.dot(2 ** np.arange(np.int(DNA_SIZE/2))[::-1]) / float(2**(DNA_SIZE/2)-1) * (X_BOUND[1]-X_BOUND[0]) + X_BOUND[0] 
 
 # convert binary DNA for Y to decimal and normalize it to a range(-1, 1)
@@ -29,13 +29,12 @@ def translateDNA_Y(pop):
     return pop_Y.dot(2 ** np.arange(np.int(DNA_SIZE/2))[::-1]) / float(2**(DNA_SIZE/2)-1) * (Y_BOUND[1]-Y_BOUND[0]) + Y_BOUND[0]
 
 def select(pop, fitness):    # nature selection wrt pop's fitness
-    idx = np.random.choice(np.arange(POP_SIZE), size=POP_SIZE, replace=True,
-                           p=fitness/fitness.sum())
-    return pop[idx] 
+    idx = np.random.choice(np.arange(POP_SIZE), size=POP_SIZE, replace=True, p = fitness / fitness.sum())
+    return pop[idx]
 
 def crossover(parent, pop):     # mating process (genes crossover)
     if np.random.rand() < CROSS_RATE:
-        i_ = np.random.randint(0, POP_SIZE, size=1)                             # select another individual from pop
+        i_ = np.random.randint(0, POP_SIZE, size = 1)                           # select another individual from pop
         cross_points = np.random.randint(0, 2, size=DNA_SIZE).astype(np.bool)   # choose crossover points
         parent[cross_points] = pop[i_, cross_points]                            # mating and produce one child
     return parent
@@ -46,14 +45,11 @@ def mutate(child):
             child[point] = 1 if child[point] == 0 else 0
     return child
 
-
 from matplotlib import cm 
 from mpl_toolkits.mplot3d import Axes3D 
 from matplotlib import pyplot
 
-
 pop = np.random.randint(2, size=(POP_SIZE, DNA_SIZE))   
-
 
 #######################
 plt.ion()       # Turn the interactive plotting mode on
