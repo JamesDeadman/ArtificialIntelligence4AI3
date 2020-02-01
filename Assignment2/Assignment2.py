@@ -195,13 +195,13 @@ class Environment:
         C = chromosomes['C'].GetValue()
         return math.sqrt(math.pi * self.R * self.V * ((Kt * C) / (2 * Ms ** (3 / 2) * K * (1 / 2)) + ((Mu + Ms) * K ** 2) / (2 * C * Ms ** 2)))
 
-    def GenerateChromosomes(self, sequence): 
+    def GenerateChromosomes(self, sequence):
         chromosomes = []
-        chromosomes.append(Chromosome(sequence, 'Mu', 16, 25.0, 40.0))
-        chromosomes.append(Chromosome(sequence, 'Ms', 16, 400.0, 550.0))
-        chromosomes.append(Chromosome(sequence, 'Kt', 16, 420000.0, 700000.0))
-        chromosomes.append(Chromosome(sequence, 'K', 16, 60000.0, 90000.0))
-        chromosomes.append(Chromosome(sequence, 'C', 16, 1900.0, 3100.0))
+        chromosomes.append(Chromosome(sequence, 'Mu', 4, 25.0, 40.0))
+        chromosomes.append(Chromosome(sequence, 'Ms', 8, 400.0, 550.0))
+        chromosomes.append(Chromosome(sequence, 'Kt', 8, 420000.0, 700000.0))
+        chromosomes.append(Chromosome(sequence, 'K', 8, 60000.0, 90000.0))
+        chromosomes.append(Chromosome(sequence, 'C', 10, 1900.0, 3500.0))
         return chromosomes
 
     def GetMutationRate(self):

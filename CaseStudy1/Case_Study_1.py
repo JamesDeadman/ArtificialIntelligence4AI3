@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 DNA_SIZE = 10            # DNA length
 POP_SIZE = 100           # population size
 CROSS_RATE = 0.8         # DNA crossover probability 
-MUTATION_RATE = 0.000    # DNA mutation probability
+MUTATION_RATE = 0.003    # DNA mutation probability
 N_GENERATIONS = 100      # Number of generation for iteration 
 X_BOUND = [0, 5]         # upper and lower bounds for independent variable x
 
