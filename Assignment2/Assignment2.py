@@ -122,7 +122,9 @@ class Sequence:
 
     #Determine the fitness of this sequence TODO: move to the environment
     def CalculateFitness(self):
-        self.fitness = self.population.GetLowestValue() - self.GetValue() + EPSILON
+        highest = self.population.GetHighestValue()
+        lowest = self.population.GetLowestValue()
+        self.fitness = (highest - self.GetValue()) / (highest - lowest) + EPSILON
 
     #Return the mutation rate
     def GetMutationRate(self):
@@ -142,10 +144,13 @@ class Population:
 
     def CalculateValues(self):
         self.lowestValueSequence = None
+        self.highestValueSequence = None
         for sequence in self.sequences:
             sequence.CalculateValue()
-            if(self.lowestValueSequence is None or self.lowestValueSequence.GetValue() < sequence.GetValue()):
+            if(self.lowestValueSequence is None or self.lowestValueSequence.GetValue() > sequence.GetValue()):
                 self.lowestValueSequence = sequence
+            if(self.highestValueSequence is None or self.highestValueSequence.GetValue() < sequence.GetValue()):
+                self.highestValueSequence = sequence
 
     def CalculateFitness(self):
         self.bestFit = None
@@ -178,6 +183,8 @@ class Population:
     def GetLowestValue(self):
         return self.lowestValueSequence.GetValue()
 
+    def GetHighestValue(self):
+        return self.highestValueSequence.GetValue()
 
 class Environment:
     R = 30
@@ -193,15 +200,15 @@ class Environment:
         Kt = chromosomes['Kt'].GetValue()
         K = chromosomes['K'].GetValue()
         C = chromosomes['C'].GetValue()
-        return math.sqrt(math.pi * self.R * self.V * ((Kt * C) / (2 * Ms ** (3 / 2) * K * (1 / 2)) + ((Mu + Ms) * K ** 2) / (2 * C * Ms ** 2)))
+        return math.sqrt(math.pi * self.R * self.V * ((Kt * C) / (2 * (Ms ** (3 / 2)) * (K ** (1 / 2))) + ((Mu + Ms) * K ** 2) / (2 * C * (Ms ** 2))))
 
     def GenerateChromosomes(self, sequence):
         chromosomes = []
-        chromosomes.append(Chromosome(sequence, 'Mu', 4, 25.0, 40.0))
-        chromosomes.append(Chromosome(sequence, 'Ms', 8, 400.0, 550.0))
-        chromosomes.append(Chromosome(sequence, 'Kt', 8, 420000.0, 700000.0))
-        chromosomes.append(Chromosome(sequence, 'K', 8, 60000.0, 90000.0))
-        chromosomes.append(Chromosome(sequence, 'C', 10, 1900.0, 3500.0))
+        chromosomes.append(Chromosome(sequence, 'Mu', 8, 25.0, 40.0))
+        chromosomes.append(Chromosome(sequence, 'Ms', 16, 400.0, 550.0))
+        chromosomes.append(Chromosome(sequence, 'Kt', 32, 420000.0, 700000.0))
+        chromosomes.append(Chromosome(sequence, 'K', 16, 60000.0, 90000.0))
+        chromosomes.append(Chromosome(sequence, 'C', 16, 1900.0, 3500.0))
         return chromosomes
 
     def GetMutationRate(self):
@@ -233,6 +240,6 @@ class Optimization:
             log.Info("i: %d, a: %f, Mu: %f, Ms: %f, Kt: %f, K: %f, C: %f" % (i, bestFit.GetValue(), Mu, Ms, Kt, K, C))
 
 environment = Environment(0.005, 0.8)
-optimization = Optimization(environment, 1000, 100)
+optimization = Optimization(environment, 2000, 500)
 
 optimization.Run()
