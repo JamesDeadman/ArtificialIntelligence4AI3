@@ -63,6 +63,8 @@ class Chromosome:
     
     def CalculateDecValue(self):
         self.decValue = self.values.dot(2 ** np.arange(self.dnaSize)[::-1])
+        if(self.decValue < 0):
+            print(self.decValue)
 
     def CalculateFloatValue(self):
         self.floatValue = self.decValue / float(2 ** self.dnaSize - 1) * (self.maxValue - self.minValue) + self.minValue
@@ -110,7 +112,7 @@ class Sequence:
     #Calculate the value of this sequence
     def CalculateValue(self):
         for chromosome in self.chromosomes.values():
-             chromosome.CalculateValue()        
+             chromosome.CalculateValue()
         self.value = self.population.environment.Calculate(self.chromosomes)
 
     #Return the value of this sequence
@@ -186,29 +188,44 @@ class Population:
     def GetHighestValue(self):
         return self.highestValueSequence.GetValue()
 
-class Environment:
+
+class VehicleSuspensionSystem:
     R = 30
     V = 6.5e-6
+    def __init__(self, Mu, Ms, Kt, K, C):
+        self.Mu = Mu
+        self.Ms = Ms
+        self.Kt = Kt
+        self.K = K
+        self.C = C
 
+    def Calculate(self):
+        self.sprungMassAcceleration = math.sqrt(
+            math.pi * self.R * self.V 
+            * ((self.Kt * self.C) / (2 * (self.Ms ** (3 / 2)) * (self.K ** (1 / 2))) 
+            + ((self.Mu + self.Ms) * self.K ** 2) / (2 * self.C * (self.Ms ** 2))))
+
+    def GetSprungMassAcceleration(self):
+        return self.sprungMassAcceleration
+
+
+class Environment:
     def __init__(self, mutationRate, spawnRate):
         self.mutationRate = mutationRate
         self.spawnRate = spawnRate
 
     def Calculate(self, chromosomes):
-        Mu = chromosomes['Mu'].GetValue()
-        Ms = chromosomes['Ms'].GetValue()
-        Kt = chromosomes['Kt'].GetValue()
-        K = chromosomes['K'].GetValue()
-        C = chromosomes['C'].GetValue()
-        return math.sqrt(math.pi * self.R * self.V * ((Kt * C) / (2 * (Ms ** (3 / 2)) * (K ** (1 / 2))) + ((Mu + Ms) * K ** 2) / (2 * C * (Ms ** 2))))
+        vss = VehicleSuspensionSystem(chromosomes['Mu'].GetValue(), chromosomes['Ms'].GetValue(), chromosomes['Kt'].GetValue(), chromosomes['K'].GetValue(), chromosomes['C'].GetValue())
+        vss.Calculate()
+        return vss.GetSprungMassAcceleration()
 
     def GenerateChromosomes(self, sequence):
         chromosomes = []
         chromosomes.append(Chromosome(sequence, 'Mu', 8, 25.0, 40.0))
         chromosomes.append(Chromosome(sequence, 'Ms', 16, 400.0, 550.0))
-        chromosomes.append(Chromosome(sequence, 'Kt', 32, 420000.0, 700000.0))
+        chromosomes.append(Chromosome(sequence, 'Kt', 16, 420000.0, 700000.0))
         chromosomes.append(Chromosome(sequence, 'K', 16, 60000.0, 90000.0))
-        chromosomes.append(Chromosome(sequence, 'C', 16, 1900.0, 3500.0))
+        chromosomes.append(Chromosome(sequence, 'C', 16, 1900.0, 3100.0))
         return chromosomes
 
     def GetMutationRate(self):
@@ -239,7 +256,7 @@ class Optimization:
 
             log.Info("i: %d, a: %f, Mu: %f, Ms: %f, Kt: %f, K: %f, C: %f" % (i, bestFit.GetValue(), Mu, Ms, Kt, K, C))
 
-environment = Environment(0.005, 0.8)
-optimization = Optimization(environment, 2000, 500)
+environment = Environment(0.003, 0.5)
+optimization = Optimization(environment, 1000, 100)
 
 optimization.Run()
