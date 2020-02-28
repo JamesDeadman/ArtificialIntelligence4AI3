@@ -1,42 +1,45 @@
+""" 
+    Assignment 2 - James Deadman 400040400
+
+    Note about the code:
+
+        I developed this application using OOP in order to maximize potential 
+        for re-use.  Any function can be optimized and visualized by extending 
+        the Environment and SequencePlotter classes and changing a few lines
+        related to console output in the main function and Solver class.
+        
+        OOP Class concepts and relationships:
+        A Sequence is a collection of Chromosomes and exists as a member of a 
+        Population within an Environment which determins the conditions for
+        fitness and rates of mutation and spawning.  The GA process is driven by 
+        a Solver and is visualized using a SequencePlotter.
+        
+        Visuaization was included because the optimized values seemed suspicious;
+        they are all tending to the min or max of their respective domains.  Since 
+        we're dealing with a function of 5 variables, I ploted the function in 
+        2D space with each variable's full domain in the horizontal axis with 
+        the other variables at the optimal best-fit value and the function result 
+        in the Y-Axis.  This visualization would not prove the minimum for all
+        functions since each variable is considered individually.  I used a 2nd
+        application to verify the results using brute-force scanning and found the 
+        the results to be consistent with GA.
+"""
+
 import math
 import numpy as np
 import matplotlib.pyplot as plt
 from enum import IntEnum
 
+
+#GA prameters
+MUTATION_RATE = 0.003
+SPAWN_RATE = 0.8
+POPULATION = 100
+GENERATIONS = 500
 EPSILON = 1e-3
 
-class LogVerbosity(IntEnum):
-    ERROR = 1
-    WARN = 2
-    INFO = 3
-    DEBUG = 4
-    TRACE = 5
 
-class Log:
-    def __init__(self, verbosity):
-        self.verbosity = verbosity
-    
-    def Error(self, content):
-        print(content)
-
-    def Warn(self, content):
-        if self.verbosity >= LogVerbosity.WARN:
-            print(content)
-
-    def Info(self, content):
-        if self.verbosity >= LogVerbosity.INFO:
-            print(content)
-
-    def Debug(self, content):
-        if self.verbosity >= LogVerbosity.DEBUG:
-            print(content)
-
-    def Trace(self, content):
-        if self.verbosity >= LogVerbosity.TRACE:
-            print(content)
-
-log = Log(LogVerbosity.DEBUG)
-
+#A generic binary sequence representing a float value within a given range
 class Chromosome:
     #Construct a random chromosome
     def __init__(self, sequence, id, dnaSize, minValue, maxValue, values = None):
@@ -50,8 +53,7 @@ class Chromosome:
             self.values = np.random.randint(2, size=(dnaSize))
         else:
             self.values = values
-    
-        log.Trace("Created chromosome %s" % id)
+   
 
     #Construct a random chromosome by crossing two parents
     @classmethod
@@ -61,14 +63,17 @@ class Chromosome:
         values[crossPoints] = parentB.values[crossPoints]
         return cls(sequence, parentA.id, parentA.dnaSize, parentA.minValue, parentA.maxValue, values)
     
+    #Calculate the decimal value based on the binary value of the sequence
     def CalculateDecValue(self):
         self.decValue = self.values.dot(2 ** np.arange(self.dnaSize)[::-1])
         if(self.decValue < 0):
             print(self.decValue)
 
+    #Calculate the float value based on the decimal value and the range
     def CalculateFloatValue(self):
         self.floatValue = self.decValue / float(2 ** self.dnaSize - 1) * (self.maxValue - self.minValue) + self.minValue
 
+    #Calculate the decimal and float values
     def CalculateValue(self):
         self.CalculateDecValue()
         self.CalculateFloatValue()
@@ -77,6 +82,11 @@ class Chromosome:
     def GetValue(self):
         return self.floatValue
 
+    #Return the domain for plotting
+    def GetDomainLineSpace(self):
+        return np.linspace(self.minValue, self.maxValue, 200)
+
+    #Getter for the Id
     def GetId(self):
         return self.id
 
@@ -92,14 +102,13 @@ class Chromosome:
         return self.sequence.GetMutationRate()
 
 
+#A generic collection of chromosomes to represent a set of variables resulting in a single function value defined in Environment
 class Sequence:
     def __init__(self, population, parentA = None, parentB = None):
         self.population = population
         if(parentA is None): # this is a new sequence, generate chromosomes from the environment
-            log.Trace("Creating new sequence")
             self.chromosomes = { x.GetId(): x for x in population.environment.GenerateChromosomes(self) }
         else: # this is a child of two parent sequences
-            log.Trace("Creating sequence from two parents")
             self.chromosomes = { }
             for k in parentA.chromosomes.keys() & parentB.chromosomes.keys():
                 self.chromosomes[k] = Chromosome.Spawn(self, parentA.chromosomes[k], parentB.chromosomes[k])
@@ -133,6 +142,7 @@ class Sequence:
         return self.population.GetMutationRate()
 
 
+#Represents a population for GA
 class Population:
     def __init__(self, environment, populationSize):
         self.environment = environment
@@ -141,9 +151,11 @@ class Population:
         for i in range(populationSize):
             self.sequences.append(Sequence(self))
 
+    #Getter for the mutation rate owned by the environment
     def GetMutationRate(self):
         return self.environment.GetMutationRate()
 
+    #Calculate the values of each sequence, keep track of the highest and lowest values
     def CalculateValues(self):
         self.lowestValueSequence = None
         self.highestValueSequence = None
@@ -154,6 +166,7 @@ class Population:
             if(self.highestValueSequence is None or self.highestValueSequence.GetValue() < sequence.GetValue()):
                 self.highestValueSequence = sequence
 
+    #Calculate the fitness of each sequence, keep track of the best fit and sum of the fitness to be used in mate selection weighting
     def CalculateFitness(self):
         self.bestFit = None
         for sequence in self.sequences:
@@ -167,30 +180,34 @@ class Population:
         fitness = np.array(list(s.GetFitness() for s in self.sequences))
         self.sequences = np.random.choice(self.sequences, size=self.populationSize, replace=True, p=(fitness / self.totalFitness))
 
+    #Mate sequence pairs within the population randomly with probability proportional to fit
     def Spawn(self):
-        log.Trace("Spawning")
         for i in range(self.populationSize):
-            if np.random.rand() < environment.spawnRate:
+            if np.random.rand() < self.environment.spawnRate:
                 j = np.random.randint(0, self.populationSize)
-                log.Trace("Selected %d and %d to mate" % (i, j))
                 self.sequences[i] = Sequence(self, self.sequences[i], self.sequences[j])
 
+    #Randomly mutate each sequence
     def Mutate(self):
         for sequence in self.sequences:
             sequence.Mutate()
 
+    #Getter for the best fit sequence
     def GetBestFit(self):
         return self.bestFit
-
+    
+    #Getter for the sequence with the lowest value
     def GetLowestValue(self):
         return self.lowestValueSequence.GetValue()
 
+    #Getter for the sequence with the highest value
     def GetHighestValue(self):
         return self.highestValueSequence.GetValue()
 
 
+#VehicleSuspensionSystem - application specific class, contains the function defined in Assignment 2
 class VehicleSuspensionSystem:
-    R = 30
+    R = 30.0
     V = 6.5e-6
     def __init__(self, Mu, Ms, Kt, K, C):
         self.Mu = Mu
@@ -199,45 +216,111 @@ class VehicleSuspensionSystem:
         self.K = K
         self.C = C
 
+    #Calculate and record the acceleration value
     def Calculate(self):
-        self.sprungMassAcceleration = math.sqrt(
-            math.pi * self.R * self.V 
-            * ((self.Kt * self.C) / (2 * (self.Ms ** (3 / 2)) * (self.K ** (1 / 2))) 
-            + ((self.Mu + self.Ms) * self.K ** 2) / (2 * self.C * (self.Ms ** 2))))
+        self.sprungMassAcceleration = VehicleSuspensionSystem.CalculateSprungMassAcceleration(self.R, self.V, self.Mu, self.Ms, self.Kt, self.K, self.C)
 
+    #Acceleration function as defined in Assignment 2
+    @staticmethod
+    def CalculateSprungMassAcceleration(R, V, Mu, Ms, Kt, K, C):
+        return math.sqrt(math.pi * R * V * ((Kt * C) / (2 * (Ms ** (3 / 2)) * (K ** (1 / 2))) + ((Mu + Ms) * (K ** 2)) / (2 * C * (Ms ** 2))))
+
+    #Getter for the acceleration value
     def GetSprungMassAcceleration(self):
         return self.sprungMassAcceleration
 
 
+#The problem and conditions to be used by the GA solver
 class Environment:
     def __init__(self, mutationRate, spawnRate):
         self.mutationRate = mutationRate
         self.spawnRate = spawnRate
 
+    #Calculate the value for a given sequence
     def Calculate(self, chromosomes):
         vss = VehicleSuspensionSystem(chromosomes['Mu'].GetValue(), chromosomes['Ms'].GetValue(), chromosomes['Kt'].GetValue(), chromosomes['K'].GetValue(), chromosomes['C'].GetValue())
         vss.Calculate()
         return vss.GetSprungMassAcceleration()
 
+    #Create a set of chromosomes for each variable defined in Assignment 2
     def GenerateChromosomes(self, sequence):
         chromosomes = []
-        chromosomes.append(Chromosome(sequence, 'Mu', 8, 25.0, 40.0))
-        chromosomes.append(Chromosome(sequence, 'Ms', 16, 400.0, 550.0))
-        chromosomes.append(Chromosome(sequence, 'Kt', 16, 420000.0, 700000.0))
-        chromosomes.append(Chromosome(sequence, 'K', 16, 60000.0, 90000.0))
-        chromosomes.append(Chromosome(sequence, 'C', 16, 1900.0, 3100.0))
+        chromosomes.append(Chromosome(sequence, 'Mu', 16, 25.0, 40.0))
+        chromosomes.append(Chromosome(sequence, 'Ms', 24, 400.0, 550.0))
+        chromosomes.append(Chromosome(sequence, 'Kt', 24, 420000.0, 700000.0))
+        chromosomes.append(Chromosome(sequence, 'K', 24, 60000.0, 90000.0))
+        chromosomes.append(Chromosome(sequence, 'C', 24, 1900.0, 3100.0))
         return chromosomes
 
     def GetMutationRate(self):
         return self.mutationRate
 
 
-class Optimization:
+#Function visualization
+class SequencePlotter:
+    def __init__(self, sequence):
+        self.sequence = sequence
+
+    def PlotAll(self):
+        MuDomain = self.sequence.chromosomes['Mu'].GetDomainLineSpace()
+        MsDomain = self.sequence.chromosomes['Ms'].GetDomainLineSpace()
+        KtDomain = self.sequence.chromosomes['Kt'].GetDomainLineSpace()
+        KDomain = self.sequence.chromosomes['K'].GetDomainLineSpace()
+        CDomain = self.sequence.chromosomes['C'].GetDomainLineSpace()
+
+        V = VehicleSuspensionSystem.V
+        R = VehicleSuspensionSystem.R
+
+        Mu = self.sequence.chromosomes['Mu'].GetValue()
+        Ms = self.sequence.chromosomes['Ms'].GetValue()
+        Kt = self.sequence.chromosomes['Kt'].GetValue()
+        K = self.sequence.chromosomes['K'].GetValue()
+        C = self.sequence.chromosomes['C'].GetValue()
+        
+        F = np.vectorize(VehicleSuspensionSystem.CalculateSprungMassAcceleration)
+        plt.subplots_adjust(wspace = 0.3, hspace = 0.5)
+
+        plt.subplot(3, 2, 1)
+        plt.plot(MuDomain, F(V, R, MuDomain, Ms, Kt, K, C))
+
+        plt.xlabel("Mu")
+        plt.ylabel("a")
+
+        plt.subplot(3, 2, 2)
+        plt.plot(MsDomain, F(V, R, Mu, MsDomain, Kt, K, C))
+        plt.xlabel("Ms")
+        plt.ylabel("a")
+
+        plt.subplot(3, 2, 3)
+        plt.plot(KtDomain, F(V, R, Mu, Ms, KtDomain, K, C))
+        plt.xlabel("Kt")
+        plt.ylabel("a")
+
+        plt.subplot(3, 2, 4)
+        plt.plot(KDomain, F(V, R, Mu, Ms, Kt, KDomain, C))
+        plt.xlabel("K")
+        plt.ylabel("a")
+
+        plt.subplot(3, 2, 5)
+        plt.plot(CDomain, F(V, R, Mu, Ms, Kt, K, CDomain))
+        plt.xlabel("C")
+        plt.ylabel("a")
+
+        plt.show()
+
+
+#Top level container for the GA optimization process
+class Solver:
     def __init__(self, environment, numberOfGenerations, populationSize):
         self.numberOfGenerations = numberOfGenerations
         self.environment = environment
         self.population = Population(environment, populationSize)
+        self.bestFit = None
 
+    def GetBestFit(self):
+        return self.bestFit
+
+    #Execute the GA process
     def Run(self):
         for i in range(self.numberOfGenerations):
             self.population.CalculateValues()
@@ -245,18 +328,38 @@ class Optimization:
             self.population.Select()
             self.population.Spawn()
             self.population.Mutate()
-            bestFit = self.population.GetBestFit()
 
-            #log.Info("Best fit value for generation %d: %f" % (i, bestFit.GetValue()))
-            Mu = bestFit.chromosomes['Mu'].GetValue()
-            Ms = bestFit.chromosomes['Ms'].GetValue()
-            Kt = bestFit.chromosomes['Kt'].GetValue()
-            K = bestFit.chromosomes['K'].GetValue()
-            C = bestFit.chromosomes['C'].GetValue()
+            generationBestFit = self.population.GetBestFit()
 
-            log.Info("i: %d, a: %f, Mu: %f, Ms: %f, Kt: %f, K: %f, C: %f" % (i, bestFit.GetValue(), Mu, Ms, Kt, K, C))
+            Mu = generationBestFit.chromosomes['Mu'].GetValue()
+            Ms = generationBestFit.chromosomes['Ms'].GetValue()
+            Kt = generationBestFit.chromosomes['Kt'].GetValue()
+            K = generationBestFit.chromosomes['K'].GetValue()
+            C = generationBestFit.chromosomes['C'].GetValue()
 
-environment = Environment(0.003, 0.5)
-optimization = Optimization(environment, 1000, 100)
+            print("Generation Best Fit i: %d, a: %f, Mu: %f, Ms: %f, Kt: %f, K: %f, C: %f" % (i, generationBestFit.GetValue(), Mu, Ms, Kt, K, C))
+        
+            if(self.bestFit == None or self.bestFit.GetValue() > generationBestFit.GetValue()):
+                self.bestFit = generationBestFit
 
-optimization.Run()
+#Application entry point
+def main():
+    environment = Environment(MUTATION_RATE, SPAWN_RATE)
+    solver = Solver(environment, GENERATIONS, POPULATION)
+
+    solver.Run()
+
+    bestFit = solver.bestFit
+    Mu = bestFit.chromosomes['Mu'].GetValue()
+    Ms = bestFit.chromosomes['Ms'].GetValue()
+    Kt = bestFit.chromosomes['Kt'].GetValue()
+    K = bestFit.chromosomes['K'].GetValue()
+    C = bestFit.chromosomes['C'].GetValue()
+
+    print("Overall Best Fit a: %f, Mu: %f, Ms: %f, Kt: %f, K: %f, C: %f" % (bestFit.GetValue(), Mu, Ms, Kt, K, C))
+
+    plotter = SequencePlotter(solver.bestFit)
+    plotter.PlotAll()
+
+
+main()
