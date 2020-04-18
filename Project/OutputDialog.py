@@ -13,7 +13,7 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 class Ui_OutputDialog(object):
     def setupUi(self, OutputDialog):
         OutputDialog.setObjectName("OutputDialog")
-        OutputDialog.resize(685, 491)
+        OutputDialog.resize(681, 491)
         sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed)
         sizePolicy.setHorizontalStretch(0)
         sizePolicy.setVerticalStretch(0)
@@ -28,7 +28,7 @@ class Ui_OutputDialog(object):
         self.ResultGroup = QtWidgets.QGroupBox(OutputDialog)
         self.ResultGroup.setGeometry(QtCore.QRect(10, 10, 661, 421))
         self.ResultGroup.setObjectName("ResultGroup")
-        self.ResultGraphicsArea = QtWidgets.QGraphicsView(self.ResultGroup)
+        self.ResultGraphicsArea = QtWidgets.QWidget(self.ResultGroup)
         self.ResultGraphicsArea.setGeometry(QtCore.QRect(10, 20, 641, 391))
         self.ResultGraphicsArea.setObjectName("ResultGraphicsArea")
         self.CloseButton = QtWidgets.QPushButton(OutputDialog)
