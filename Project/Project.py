@@ -3,6 +3,9 @@ import ntpath
 import numpy as np
 import math
 import io
+import gc
+import time
+
 from PyQt5.QtWidgets import QApplication, QWidget, QInputDialog, QLineEdit, QFileDialog
 from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtGui import QImage
@@ -16,6 +19,9 @@ from random import seed
 from random import random
 from random import randint
 
+#Smallest value of concern
+EPSILON = .001
+
 #View layer
 #Input dialog
 from InputDialog import Ui_InputDialog
@@ -25,8 +31,6 @@ from ProcessingDialog import Ui_ProcessingDialog
 
 #Output dialog
 from OutputDialog import Ui_OutputDialog
-
-EPSILON = .001
 
 # A dialog section for a part item in the part item group area
 class PartListItemView:
@@ -183,7 +187,7 @@ class InputPresenter:
         self.application.ExecuteNestingRun()
 
     def OnBrowseClick(self):
-        fileNames, fileTypes = QFileDialog.getOpenFileNames(None, 'Open file',  'C:\\Temp',"Image files (*.bmp)")
+        fileNames, fileTypes = QFileDialog.getOpenFileNames(None, 'Open file',  'C:\\Temp4',"Image files (*.bmp)")
 
         for fileName in fileNames:
             newPart = Part(self.nestingRun, fileName, 1)
@@ -233,6 +237,7 @@ class ProcessingPresenter:
         self.processingView.setupUi(self.processingWindow)
         self.processingView.CloseButton.clicked.connect(self.OnCloseClick)
         self.processingView.AbortButton.clicked.connect(self.OnAbortClick)
+        self.nestingRun.UpdateCallback = self.UpdateNestingRun
 
     def OnCloseClick(self):
         self.application.Terminate()
@@ -245,7 +250,15 @@ class ProcessingPresenter:
         self.processingWindow.hide()
 
     def Show(self):
+        self.processingView.GeneticAlgorithmProgress.setMaximum(self.nestingRun.Settings.Iterations)
+        self.processingView.GeneticAlgorithmProgress.setValue(0)
+        self.application.ProcessEvents()
         self.processingWindow.show()
+        self.application.ProcessEvents()
+
+    def UpdateNestingRun(self):
+        self.processingView.GeneticAlgorithmProgress.setValue(self.nestingRun.CurrentIteration)
+        self.application.ProcessEvents()
 
 
 class OutputPresenter:
@@ -258,6 +271,7 @@ class OutputPresenter:
         self.outputView.RestartButton.clicked.connect(self.OnRestartClick)
         self.outputView.SaveButton.clicked.connect(self.OnSaveClick)
         self.outputView.ResultGraphicsArea.paintEvent = self.PaintGraphicsArea
+
     def OnCloseClick(self):
         self.application.Terminate()
     
@@ -322,7 +336,7 @@ class GeneticAlgorithmSettings:
         self.Population = 100
         self.Iterations = 100
         self.SpawnRate = 0.8
-        self.MutationRate = 0.03
+        self.MutationRate = 0.003
         
 
 class Optimization:
@@ -363,16 +377,74 @@ class Environment:
 
     #Create a set of chromosomes for a given sequence
     def GenerateChromosomes(self, sequence):
-        raise NotImplemented
+        raise NotImplementedError
 
 
+#Represents a population for GA
 class Population:
     @property
-    def Environtment(self):
+    def Environment(self):
         return self.environment
 
-    def __init__(self, environment):
+    def __init__(self, environment, settings: GeneticAlgorithmSettings):
         self.environment = environment
+        self.settings = settings
+        self.sequences = []
+
+    #Calculate the values of each sequence, keep track of the highest and lowest values
+    def CalculateValues(self):
+        self.lowestValueSequence = None
+        self.highestValueSequence = None
+        for sequence in self.sequences:
+            sequence.CalculateTotalValue()
+            if(self.lowestValueSequence is None or self.lowestValueSequence.Value > sequence.Value):
+                self.lowestValueSequence = sequence
+            if(self.highestValueSequence is None or self.highestValueSequence.Value < sequence.Value):
+                self.highestValueSequence = sequence
+
+    #Calculate the fitness of each sequence, keep track of the best fit and sum of the fitness to be used in mate selection weighting
+    def CalculateFitness(self):
+        self.bestFit = None
+        for sequence in self.sequences:
+            sequence.CalculateFitness()
+            if(self.bestFit is None or self.bestFit.Fitness < sequence.Fitness):
+                self.bestFit = sequence
+        self.totalFitness = sum(s.Fitness for s in self.sequences)
+
+    #Build the next generation of sequences with weighting based on fitness
+    def Select(self):
+        fitness = np.array(list(s.Fitness for s in self.sequences))
+        self.sequences = np.random.choice(self.sequences, size=self.settings.Population, replace=True, p=(fitness / (self.totalFitness)))
+
+    #Mate sequence pairs within the population randomly with probability proportional to fit
+    def Spawn(self):
+        populationSize = self.settings.Population
+        spawnRate = self.settings.SpawnRate
+        for i in range(populationSize):
+            if np.random.rand() < spawnRate:
+                j = np.random.randint(0, populationSize)
+                self.sequences[i] = self.Mate(self.sequences[i], self.sequences[j])
+
+    #Create a new sequence from two parent sequences
+    def Mate(self, sequenceA, sequenceB):
+        return Sequence(self, sequenceA, sequenceB)
+
+    #Randomly mutate each sequence
+    def Mutate(self):
+        for sequence in self.sequences:
+            sequence.Mutate()
+
+    #Getter for the best fit sequence
+    def GetBestFit(self):
+        return self.bestFit
+    
+    #Getter for the sequence with the lowest value
+    def GetLowestValue(self):
+        return self.lowestValueSequence.Value
+
+    #Getter for the sequence with the highest value
+    def GetHighestValue(self):
+        return self.highestValueSequence.Value
 
 
 # A collection of related chromosomes
@@ -384,15 +456,15 @@ class Sequence:
     @property
     def Fitness(self):
         return self.fitness
+    
+    @property
+    def Population(self):
+        return self.population
 
     def __init__(self, population, parentA = None, parentB = None):
         self.population = population
-        if(parentA is None): # this is a new sequence, generate chromosomes from the environment
-            self.chromosomes = { x.GetId(): x for x in population.environment.GenerateChromosomes(self) }
-        else: # this is a child of two parent sequences
-            self.chromosomes = { }
-            for k in parentA.chromosomes.keys() & parentB.chromosomes.keys():
-                self.chromosomes[k] = Chromosome.Spawn(self, parentA.chromosomes[k], parentB.chromosomes[k])
+        self.chromosomes = { }
+        population.environment.GenerateChromosomes(self, parentA, parentB)
 
     #Mutate each chromosome
     def Mutate(self):
@@ -400,10 +472,13 @@ class Sequence:
              chromosome.Mutate()
 
     #Calculate the value of this sequence
-    def CalculateValue(self):
+    def CalculateChromosomeValues(self):
         for chromosome in self.chromosomes.values():
              chromosome.CalculateValue()
-        self.value = self.population.environment.Calculate(self.chromosomes)
+
+    #Calculate the value of this sequence
+    def CalculateTotalValue(self):
+        self.value = self.population.environment.CalculateValue(self)
 
     #Determine the fitness of this sequence
     def CalculateFitness(self):
@@ -411,16 +486,27 @@ class Sequence:
         lowest = self.population.GetLowestValue()
         self.fitness = (highest - self.Value) / (highest - lowest) + EPSILON
 
+    def AddChromosome(self, chromosome):
+        self.chromosomes[chromosome.Id] = chromosome
+
 
 # Class to represent a single value in binary
 class Chromosome:
     @property
     def Id(self):
-        return self.Id
+        return self.id
 
     @property
     def Value(self):
         return self.floatValue
+
+    @property
+    def MaxValue(self):
+        return self.maxValue
+
+    @property
+    def MinValue(self):
+        return self.minValue
 
     #Construct a random chromosome
     def __init__(self, sequence, id, dnaSize, minValue, maxValue, values = None):
@@ -436,13 +522,20 @@ class Chromosome:
             self.values = values   
 
     #Construct a random chromosome by crossing two parents
-    @classmethod
-    def Spawn(cls, sequence, parentA, parentB):
-        values = parentA.values.copy()
-        crossPoints = np.random.randint(0, 2, size=parentA.dnaSize).astype(np.bool)
-        values[crossPoints] = parentB.values[crossPoints]
-        return cls(sequence, parentA.id, parentA.dnaSize, parentA.minValue, parentA.maxValue, values)
-    
+    def Spawn(self, sequence, parentB):
+        try:
+            values = self.values.copy()
+            crossPoints = np.random.randint(0, 2, size=self.dnaSize).astype(np.bool)
+            values[crossPoints] = parentB.values[crossPoints]
+        except:
+            print("ok")
+
+        return self.Create(sequence, self.id, self.dnaSize, self.minValue, self.maxValue, values)
+
+    #Factory layer to allow overriding by a child type
+    def Create(self, sequence, id, dnaSize, minValue, maxValue, values):
+        return Chromosome(sequence, id, dnaSize, minValue, maxValue, values)
+
     #Calculate the decimal value based on the binary value of the sequence
     def CalculateDecValue(self):
         self.decValue = self.values.dot(2 ** np.arange(self.dnaSize)[::-1])
@@ -451,6 +544,14 @@ class Chromosome:
 
     #Calculate the float value based on the decimal value and the range
     def CalculateFloatValue(self):
+        if self.dnaSize == 0:
+            self.floatValue =  0
+            return
+
+        if self.maxValue == self.minValue:
+            self.floatValue = self.minValue
+            return
+
         self.floatValue = self.decValue / float(2 ** self.dnaSize - 1) * (self.maxValue - self.minValue) + self.minValue
 
     #Calculate the decimal and float values
@@ -460,7 +561,7 @@ class Chromosome:
 
     #Mutate each bit
     def Mutate(self):
-        mutationRate = self.sequence.Population.Settings.MutationRate
+        mutationRate = self.sequence.Population.Environment.Settings.MutationRate
         for point in range(self.dnaSize):
             if np.random.rand() < mutationRate:
                 self.values[point] = 1 if self.values[point] == 0 else 0
@@ -632,6 +733,18 @@ class NestingOptimizationSettings(GeneticAlgorithmSettings):
 
 class NestingRun(Optimization):
     @property
+    def CurrentIteration(self):
+        return self.currentIteration
+
+    @property
+    def UpdateCallback(self):
+        return self.updateCallback
+
+    @UpdateCallback.setter
+    def UpdateCallback(self, value):
+        self.updateCallback = value
+
+    @property
     def Batch(self):
         return self.batch
 
@@ -649,43 +762,66 @@ class NestingRun(Optimization):
 
     def __init__(self, settings):
         super().__init__(settings)
+        self.updateCallback = None
         self.batch = Batch(self, settings)
         
-        self.batch.AddPart(Part(self.batch, "c:\\temp\\part1.bmp", 1))
-        self.batch.AddPart(Part(self.batch, "c:\\temp\\part2.bmp", 2))
-        self.batch.AddPart(Part(self.batch, "c:\\temp\\part3.bmp", 3))
-        self.batch.AddPart(Part(self.batch, "c:\\temp\\part4.bmp", 4))
-        self.batch.AddPart(Part(self.batch, "c:\\temp\\part5.bmp", 5))
-        self.batch.AddPart(Part(self.batch, "c:\\temp\\part6.bmp", 6))
+        #preload parts for testing
+        #self.batch.AddPart(Part(self.batch, "c:\\temp\\part1.bmp", 1))
+        #self.batch.AddPart(Part(self.batch, "c:\\temp\\part2.bmp", 1))
+        #self.batch.AddPart(Part(self.batch, "c:\\temp\\part3.bmp", 1))
+        #self.batch.AddPart(Part(self.batch, "c:\\temp\\part4.bmp", 1))
+        #self.batch.AddPart(Part(self.batch, "c:\\temp\\part5.bmp", 1))
+        #self.batch.AddPart(Part(self.batch, "c:\\temp\\part6.bmp", 1))
 
-    
+    def CallUpdateCallback(self):
+        if self.updateCallback != None:
+            self.updateCallback()
+
     def Run(self):
         self.continueRunning = True
+        startTime = time.time()
 
         material = Material(self.batch)
         material.batch.CreateInstances()
         material.CreateVariants()
 
-        #currentIteration = Iteration(self, self.batch)
+        self.currentIteration = 0
         maxIteration = self.Settings.Iterations
 
-        while (i < maxIteration and self.continueRunning):
-            i += 1
+        while (self.currentIteration < maxIteration and self.continueRunning):
+            self.currentIteration += 1
+            for variant in material.Variants:
+                self.CallUpdateCallback()
+                variant.Process()
+                
+            material.CalculateValues()
+            material.CalculateFitness()
+            
+            generationBestFit = material.GetBestFit()
 
-            for variant in material.Variants
-                variant.CreateRotatedImages()
-                variant.CalculateSize()
-                variant.InitBuffers()
-                variant.CreatePartInstanceVariantImages()
-                variant.FindBoundingBox()
-                variant.CreateDisplayImage()
+            material.Select()
+            material.Spawn()
+            material.Mutate()
 
-        #self.material = material
-        #self.displayImage = materialInstance.DisplayImage
-        #plt.imshow(materialInstance.DisplayImage)
-        #plt.show()
+            generationBestFit.CalculateChromosomeValues()
+            generationBestFit.CreateRotatedImages()
+            generationBestFit.CalculateSize()
+            generationBestFit.InitBuffers()
+            generationBestFit.CreatePartInstanceVariantImages()
+            generationBestFit.CreateDisplayImage()
        
-        #i = 0
+        generationBestFit.CalculateChromosomeValues()
+        generationBestFit.CreateRotatedImages()
+        generationBestFit.CalculateSize()
+        generationBestFit.InitBuffers()
+        generationBestFit.CreatePartInstanceVariantImages()
+
+        generationBestFit.CreateDisplayImage()
+        self.displayImage = generationBestFit.DisplayImage
+        self.material = material
+
+        endTime = time.time()
+        print("Total elapsed time: %f" % (endTime - startTime))
 
 
     def Abort(self):
@@ -695,6 +831,10 @@ class NestingRun(Optimization):
 # Contains definiton and quantity of each part
 class Batch(Environment):
     @property
+    def PartInstances(self):
+        return self.partInstances
+
+    @property
     def Parts(self):
         return self.parts
 
@@ -703,9 +843,9 @@ class Batch(Environment):
         return self.settings
 
     def __init__(self, nestingRun, settings):
-        super().__init__(nestingRun, settings)
         self.parts = []
         self.partInstances = []
+        super().__init__(nestingRun, settings)
 
     def AddPart(self, part):
         self.parts.append(part)
@@ -715,20 +855,62 @@ class Batch(Environment):
 
     def CreateInstances(self):
         for part in self.parts:
-            for i in range(1, part.Quantity):
-                self.partInstances.append(PartInstance(self.materialInstance, part))
+            for i in range(part.Quantity):
+                self.partInstances.append(PartInstance(part, i))
 
     # Collect generate Part Instance Variants 
-    def GenerateChromosomes(self, materialVariant):
-        materialVariant.CreatePartInstanceVariants()
+    def GenerateChromosomes(self, materialVariant, parentA = None, parentB = None):
+        if(parentA is None): # this is a new sequence, generate chromosomes from the environment
+            materialVariant.CreatePartInstanceVariants()        
+        elif(parentB is None): 
+            raise ValueError("Cannot spawn from one parent")
+        else: # this is a child of two parent sequences
+            # Match up the part instances
+            for partInstanceVariantId in parentA.PartInstanceVariantMap.keys() & parentB.PartInstanceVariantMap.keys():
+                materialVariant.partInstanceVariants.append(parentA.PartInstanceVariantMap[partInstanceVariantId].Spawn(materialVariant, parentB.PartInstanceVariantMap[partInstanceVariantId]))
+       
+        materialVariant.PartInstanceVariantMap = { x.PartInstance.Id: x for x in materialVariant.partInstanceVariants }
 
-        for variant in materialVariant.PartInstanceVariants:
-            for dimension in variant.Dimensions:
-                materialVariant.chromosomes.addItem(dimension)
+    def CalculateValue(self, materialVariant) -> float:
+        overlapArea =  materialVariant.TotalOverlapArea
+        totalArea = materialVariant.Area
+        filledArea = materialVariant.totalFilledArea
 
+        totalX = 0
+        totalY = 0
+        totalMaxX = 0
+        totalMaxY = 0
+        maxX = 0
+        maxY = 0
+
+        for partInstanceVariant in materialVariant.PartInstanceVariants:
+            totalX += partInstanceVariant.X
+            totalY += partInstanceVariant.Y
+            maxX = partInstanceVariant.MaxX
+            maxY = partInstanceVariant.MaxY
+            totalMaxX += maxX
+            totalMaxY += maxY
+        
+        dimensionScoreY = totalX / totalMaxX
+        dimensionScoreX = totalY / totalMaxY
+        widthScore = materialVariant.Width / maxX
+        heightScore = materialVariant.Height / maxY
+
+
+        overlapScore = materialVariant.TotalOverlapArea / totalArea
+
+        return dimensionScoreX + dimensionScoreY + widthScore + heightScore + overlapScore * 1000 # (totalArea - filledArea) / totalArea + (.1 if overlapArea > 0 else 0)
 
 # Represents the entire material comprises the population
 class MaterialVariant(Sequence):
+    @property
+    def Material(self):
+        return self.material
+
+    @property
+    def Batch(self) -> Batch:
+        return self.material.batch
+
     @property
     def PartInstanceVariants(self):
         return self.partInstanceVariants
@@ -758,17 +940,38 @@ class MaterialVariant(Sequence):
         return self.width
 
     @property
+    def Area(self) -> int:
+        return self.area
+
+    @property
     def Height(self) -> int:
         return self.height
 
-    def __init__(self, batch, population, parentA = None, parentB = None):
-        super().__init__(population, parentA, parentB)
-        self.population = population
-        self.batch = batch
+    @property
+    def TotalOverlapArea(self) -> int:
+        return self.totalOverlapArea
+
+    @property
+    def TotalFilledArea(self) -> int:
+        return self.totalFilledArea
+
+    def __init__(self, material, parentA = None, parentB = None):
+        self.material = material
         self.partInstanceVariants = []
+        super().__init__(material, parentA, parentB)
+
+    def Process(self, releaseBuffers = False):
+        self.CalculateChromosomeValues()
+        self.CreateRotatedImages()
+        self.CalculateSize()
+        self.InitBuffers()
+        self.CreatePartInstanceVariantImages()
+        self.FindBoundingBox()
+        if releaseBuffers:
+            variant.ReleaseBuffers()
 
     def CreatePartInstanceVariants(self):
-        for partInstance in self.batch.PartInstances:
+        for partInstance in self.Batch.PartInstances:
             self.partInstanceVariants.append(PartInstanceVariant(self, partInstance))
 
     def InitBuffers(self):
@@ -776,8 +979,11 @@ class MaterialVariant(Sequence):
         self.overlapImage = Image.new('1', self.size)
         self.displayImage = Image.new('RGB', self.size)
 
-    def AddPartInstanceVariant(self, partInstance):
-        self.partInstanceVariants.append(partInstance)
+    def ReleaseBuffers(self):
+        self.materialImage.close()
+        self.overlapImage.close()
+        self.displayImage.close()
+        #gc.collect()
 
     def CalculateSize(self):
         minX = self.partInstanceVariants[0].MinX
@@ -805,23 +1011,36 @@ class MaterialVariant(Sequence):
     def CreatePartInstanceVariantImages(self):
         for variant in self.partInstanceVariants:
              variant.createImage()
+        
+        overlapBuffer = np.array(self.overlapImage)
+        try:
+            self.totalOverlapArea = overlapBuffer.any(axis = -1).sum()
+        except:
+            self.totalOverlapArea = 0
+
+        filledAreaBuffer = np.array(self.materialImage)
+        try:
+            self.totalFilledArea = filledAreaBuffer.any(axis = -1).sum()
+        except:
+            self.totalFilledArea = 0
 
     def CreateDisplayImage(self):
         self.displayImage.paste(self.materialImage)
-        red = Image.new('RGB', self.size)
-        redDraw = ImageDraw.Draw(red)
-        redDraw.rectangle([(0, 0), red.size], fill = (255, 0, 0))
+        redFill = Image.new('RGB', self.size)
+        redDraw = ImageDraw.Draw(redFill)
+        redDraw.rectangle([(0, 0), redFill.size], fill = (255, 0, 0))
         self.displayImage.paste(self.materialImage)
-        self.displayImage.paste(red, self.overlapImage)
+        self.displayImage.paste(redFill, self.overlapImage)
 
     def FindBoundingBox(self):
         materialBuffer = np.array(self.materialImage)
+
         rows = np.any(materialBuffer, axis=1)
         cols = np.any(materialBuffer, axis=0)
         self.top, self.bottom = np.where(rows)[0][[0, -1]]
         self.right, self.left = np.where(cols)[0][[0, -1]]
-        self.area = (self.bottom - self.top) * (self.left - self.right)
 
+        self.area = (self.bottom - self.top) * (self.left - self.right)
 
 
 class Part:
@@ -863,7 +1082,7 @@ class Part:
         self.image = Image.open(self.file)
 
     def InitInstances(self):
-        for i in range(1, self.quantity):
+        for i in range(self.quantity):
             self.instances.append(PartInstance(self, i))
 
 
@@ -873,6 +1092,14 @@ class PartInstance:
     def Index(self) -> int:
         return self.index
 
+    @property
+    def Id(self) -> str:
+        return "%s~%i" % (self.part.Name, self.index)
+
+    @property
+    def Part(self):
+        return self.part
+
     def __init__(self, part, index):
         self.part = part
         self.index = index
@@ -880,21 +1107,33 @@ class PartInstance:
 
 # A variant of a part instance, one for each population member of part instance
 class PartInstanceVariant():
+    @property 
+    def PartInstance(self):
+        return self.partInstance
+   
     @property
     def X(self) -> int:
-        return self.x
+        return int(self.x.Value)
     
     @property
     def Y(self) -> int:
-        return self.y
+        return int(self.y.Value)
+
+    @property
+    def MaxX(self) -> int:
+        return int(self.x.MaxValue)
+    
+    @property
+    def MaxY(self) -> int:
+        return int(self.y.MaxValue)
 
     @property
     def R(self) -> int:
-        return self.r
+        return int(self.r.Value)
 
     @property
     def F(self) -> bool:
-        return self.f
+        return self.f.Value > 0.5
 
     @property
     def MinX(self) -> int:
@@ -924,54 +1163,88 @@ class PartInstanceVariant():
     def RotatedImage(self) -> Image:
         return self.rotatedImage
 
-    def __init__(self, batch, materialVariant, partInstance, population):
-        super().__init__(population)
-        self.settings:NestingOptimizationSettings = settings
-        self.batch = batch
-        self.materialVariant = materialVariant
-        self.partInstance = partInstance
+    def __init__(self, materialVariant:MaterialVariant, partInstance:PartInstance, x = None, y = None, r = None, f = None):
+        self.settings:NestingOptimizationSettings = materialVariant.Batch.Settings
+        self.materialVariant:MaterialVariant = materialVariant
+        self.partInstance:PartInstance = partInstance
 
-        idPrefix = partInstance.Part.Name + "~" + partInstance.Index
-        xSize = math.ceil(math.log2(self.settings.MaxWidth / self.settings.LinearStep))
-        ySize = math.ceil(math.log2(self.settings.MaxHeight / self.settings.LinearStep))
-        rSize = math.ceil(math.log2(360 / self.settings.AngularStep))
-    
-        self.x = Dimension(self, materialVariant, idPrefix + "x", xSize, 0, self.settings.MaxWidth)
-        self.y = Dimension(self, materialVariant, idPrefix + "y", ySize, 0, self.settings.MaxHeight)
-        self.r = Dimension(self, materialVariant, idPrefix + "r", rSize, 0, self.settings.MaxWidth)
-        
-        if self.settings.FlipPolicy.Name == FlipPolicies_AllowFlip.Name:
-            self.f = Dimension(self, materialVariant, idPrefix + "f", 1, 0, 1)
+        idPrefix = "%s~%i" % (partInstance.Part.Name, partInstance.Index)
+
+        maxWidth = 400 if self.settings.MaxWidth == 0 else self.settings.MaxWidth
+        maxHeight = 400 if self.settings.MaxHeight == 0 else self.settings.MaxHeight
+
+        if x is None:
+            xSize = math.ceil(math.log2(maxWidth / self.settings.LinearStep))
+            self.x = Dimension(materialVariant, idPrefix + "x", xSize, 0, maxWidth)
         else:
-            self.f = Dimension(self, materialVariant, idPrefix + "f", 0, 0, 0)
+            self.x = x
 
-        self.chromosomes.addItem(self.x)
-        self.chromosomes.addItem(self.y)
-        self.chromosomes.addItem(self.r)
-        self.chromosomes.addItem(self.f)
+        if y is None:
+            ySize = math.ceil(math.log2(maxHeight / self.settings.LinearStep))
+            self.y = Dimension(materialVariant, idPrefix + "y", ySize, 0, maxHeight)
+        else:
+            self.y = y
+
+        if r is None:
+            rSize = math.ceil(math.log2(360 / self.settings.AngularStep))
+            self.r = Dimension(materialVariant, idPrefix + "r", rSize, 0, 360)
+        else:
+            self.r = r
+
+        if f is None:        
+            if self.settings.FlipPolicy == "Allow Flip":
+                self.f = Dimension(materialVariant, idPrefix + "f", 1, 0, 1)
+            else:
+                self.f = Dimension(materialVariant, idPrefix + "f", 0, 0, 0)
+        else:
+            self.f = f
+
+        materialVariant.AddChromosome(self.x)
+        materialVariant.AddChromosome(self.y)
+        materialVariant.AddChromosome(self.r)
+        materialVariant.AddChromosome(self.f)
 
     def CreateRotatedImage(self):
-        image = self.part.Image
+        image = self.partInstance.Part.Image
 
-        if(self.f):
+        if(self.F):
             image = ImageOps.flip(image)
-        self.rotatedImage = image.rotate(self.r, Image.NEAREST, expand = 1)
+        self.rotatedImage = image.rotate(self.R, Image.NEAREST, expand = 1)
         self.size = self.rotatedImage.size
 
     def createImage(self):
         # Overlap
-        location = (int(self.x - self.Width / 2 - self.materialInstance.OriginX), int(self.y - self.Height / 2 - self.materialInstance.OriginY))
-        self.overlapMask = Image.new('1', self.materialInstance.OverlapImage.size)
+        location = (int(self.X - self.Width / 2 - self.materialVariant.OriginX), int(self.Y - self.Height / 2 - self.materialVariant.OriginY))
+        self.overlapMask = Image.new('1', self.materialVariant.OverlapImage.size)
         self.overlapMask.paste(self.rotatedImage, location, self.rotatedImage)
-        self.materialInstance.OverlapImage.paste(self.materialInstance.MaterialImage, self.overlapMask)
+        self.materialVariant.OverlapImage.paste(self.materialVariant.MaterialImage, self.overlapMask)
 
         # Place in material image
-        self.materialInstance.MaterialImage.paste(self.rotatedImage, location, self.rotatedImage)
+        self.materialVariant.MaterialImage.paste(self.rotatedImage, location, self.rotatedImage)
+
+    #Spawn two Part instance variants.  Similar to a sqeuence, part dimensions are chromosomes
+    def Spawn(self, newMaterialVariant, parentB):
+        xDim = self.x.Spawn(self.materialVariant, parentB.x)
+        xDim.CalculateValue()
+
+        yDim = self.y.Spawn(self.materialVariant, parentB.y)
+        yDim.CalculateValue()
+
+        rDim = self.r.Spawn(self.materialVariant, parentB.r)
+        rDim.CalculateValue()
+
+        fDim = self.f.Spawn(self.materialVariant, parentB.f)
+        fDim.CalculateValue()
+
+        return PartInstanceVariant(newMaterialVariant, self.partInstance, xDim, yDim, rDim, fDim)
 
 
 class Dimension(Chromosome):
-    def __init__(self, materialVariant, id, dnaSize, minValue, maxValue):
-        super().__init__(materialVariant, id, dnaSize, minValue, maxValue)
+    def __init__(self, materialVariant, id, dnaSize, minValue, maxValue, values = None):
+        super().__init__(materialVariant, id, dnaSize, minValue, maxValue, values)
+
+    def Create(self, sequence, id, dnaSize, minValue, maxValue, values):
+        return Dimension(sequence, id, dnaSize, minValue, maxValue, values)
 
 
 class RasterImage:
@@ -984,20 +1257,25 @@ class VectorImage:
         super().__init__()
 
 
-class Material:
+class Material(Population):
+    @property
+    def Batch(self):
+        return self.batch
+
     @property
     def Variants(self):
-        return self.variants
+        return self.sequences
 
     def __init__(self, batch):
         self.batch = batch
-        self.population = Population(self.batch)
-        self.variants = []
+        super().__init__(batch, self.batch.Settings)
 
     def CreateVariants(self):
         for i in range(1, self.batch.Settings.Population):
-            self.variant = MaterialVariant(self.batch, self.population)
+            self.sequences.append(MaterialVariant(self))
 
+    def Mate(self, sequenceA, sequenceB):
+        return MaterialVariant(self, sequenceA, sequenceB)
 
 #Utility and service classes
 class ImageLoader:
@@ -1070,6 +1348,9 @@ class Application:
     def Run(self): 
         self.Navigator.ShowInput()
         sys.exit(self.qtApplication.exec_())
+
+    def ProcessEvents(self):
+        self.qtApplication.processEvents()
 
     def Terminate(self):
         sys.exit()
